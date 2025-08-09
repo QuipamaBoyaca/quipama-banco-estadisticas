@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Banco de Estadísticas — Quípama (Boyacá)</title>
+  <meta name="description" content="Visualizador dinámico de Excel para el banco de estadísticas de Quípama, Boyacá." />
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide icons -->
+  <script type="module">
+    import { createIcons, Upload, BarChart2, FileSpreadsheet, RefreshCw, Search, Github } from "https://cdn.jsdelivr.net/npm/lucide@0.470.0/+esm";
+    window.addEventListener('DOMContentLoaded',()=>{
+      createIcons({icons:{Upload, BarChart2, FileSpreadsheet, RefreshCw, Search, Github}})
+    });
+  </script>
+  <!-- SheetJS (XLSX) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.2/dist/xlsx.full.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <!-- JSZip -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <style>
+    table { width: 100%; border-collapse: collapse; }
+    thead th { position: sticky; top: 0; background: #fff; }
+    tbody tr:nth-child(even){ background:#f8fafc }
+    .chip { display: inline-flex; align-items: center; border-radius: 9999px; padding: 2px 8px; font-size: 12px; font-weight: 500; background: #f1f5f9; color: #334155; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <header class="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
+      <div class="shrink-0 w-10 h-10 grid place-items-center rounded-xl bg-slate-900 text-white font-bold">Q</div>
+      <div class="flex-1">
+        <h1 class="text-xl md:text-2xl font-semibold">Banco de Estadísticas · Quípama (Boyacá)</h1>
+        <p class="text-sm text-slate-500">Carga automática desde Excel · DNP · DANE · Función Pública (FURAG) · y más</p>
+      </div>
+      <a href="#deploy" class="hidden md:inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"><i data-lucide="github" class="w-4 h-4"></i> Publicar</a>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+    <!-- CARGA -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6">
+      <div class="flex flex-col md:flex-row md:items-center gap-4 justify-between">
+        <div>
+          <h2 class="text-lg font-semibold">Fuente de datos (Excel)</h2>
+          <p class="text-sm text-slate-600">Coloca en la misma carpeta el archivo <span class="font-mono bg-slate-100 px-1 rounded">Banco_Estadisticas_Quipama.xlsx</span> (o el alternativo <span class="font-mono bg-slate-100 px-1 rounded">Banco_Estadisticas_Quipama_Ampliado (1).xlsx</span>) y publica. Si no se puede descargar automáticamente, súbelo manualmente aquí.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="reloadBtn" class="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Reintentar descarga</button>
+          <label class="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-slate-50 cursor-pointer">
+            <i data-lucide="upload" class="w-4 h-4"></i>
+            <span>Subir Excel</span>
+            <input id="fileInput" type="file" accept=".xlsx,.xls" class="hidden" />
+          </label>
+        </div>
+      </div>
+      <div id="loadStatus" class="mt-3 text-sm text-slate-500">Esperando cargar el Excel…</div>
+    </section>
+
+    <!-- BUSCADOR GLOBAL -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6">
+      <div class="flex items-center gap-2">
+        <i data-lucide="search" class="w-5 h-5 text-slate-400"></i>
+        <input id="globalSearch" type="search" placeholder="Buscar en todas las hojas…" class="w-full outline-none text-sm bg-transparent" />
+      </div>
+    </section>
+
+    <!-- RESUMEN -->
+    <section id="summaryCards" class="grid md:grid-cols-3 gap-4"></section>
+
+    <!-- Export ZIP -->
+    <section class="bg-white p-4 rounded shadow flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold">Exportaciones</h2>
+        <p class="text-sm text-slate-500">Descarga todas las hojas como CSV dentro de un solo ZIP.</p>
+      </div>
+      <button id="downloadAllBtn" class="px-3 py-1.5 bg-emerald-600 text-white rounded">Descargar todo (ZIP)</button>
+    </section>
+
+    <!-- CONTENEDOR DE HOJAS -->
+    <section id="sheetsContainer" class="space-y-4"></section>
+
+    <!-- Deploy instructions -->
+    <section id="deploy" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6">
+      <h2 class="text-lg font-semibold mb-2">Publicar en GitHub Pages</h2>
+      <ol class="list-decimal ml-5 text-sm text-slate-700 space-y-1">
+        <li>Crea un repositorio, por ejemplo <span class="font-mono">quipama-banco-estadisticas</span>.</li>
+        <li>Sube <span class="font-mono">index.html</span> y el archivo Excel <span class="font-mono">Banco_Estadisticas_Quipama.xlsx</span> (o el alternativo) al <strong>root</strong> del repo.</li>
+        <li>En <em>Settings → Pages</em>, usa <em>GitHub Actions</em> o la rama <em>main</em> con carpeta <em>root</em>.</li>
+        <li>Tu sitio quedará en <span class="font-mono">https://tuusuario.github.io/quipama-banco-estadisticas</span>.</li>
+      </ol>
+    </section>
+  </main>
+
+  <footer class="py-8 text-center text-xs text-slate-500">Hecho para Quípama (Boyacá). Actualiza el Excel y vuelve a publicar para refrescar datos.</footer>
+
+  <script>
+    // Candidatos de archivo Excel
+    const CANDIDATE_FILES = [
+      "Banco_Estadisticas_Quipama.xlsx",
+      "Banco_Estadisticas_Quipama_Ampliado (1).xlsx"
+    ];
+
+    const state = { wb: null, jsonBySheet: {}, charts: {}, filter: "" };
+    const qs = (sel, el=document)=>el.querySelector(sel);
+    const qsa = (sel, el=document)=>[...el.querySelectorAll(sel)];
+    function setStatus(msg){ const el=qs('#loadStatus'); if(el) el.textContent = msg; }
+
+    async function fetchExcel() {
+      (async ()=>{
+        for(const fname of CANDIDATE_FILES){
+          try{
+            setStatus(\`Buscando "\${fname}"…\`);
+            const res = await fetch(fname, { cache: 'no-store' });
+            if(!res.ok) throw new Error(\`HTTP \${res.status}\`);
+            const buf = await res.arrayBuffer();
+            const wb = XLSX.read(buf, { type: 'array' });
+            onWorkbookLoaded(wb, \`Descargado desde \${fname}\`);
+            return;
+          }catch(e){ /* sigue probando */ }
+        }
+        setStatus('No se encontró ningún Excel automáticamente. Sube el archivo manualmente.');
+      })();
+    }
+
+    function onWorkbookLoaded(wb, originMsg){
+      state.wb = wb;
+      setStatus(\`Excel cargado. \${originMsg}. \${wb.SheetNames.length} hojas detectadas.\`);
+      state.jsonBySheet = {};
+      wb.SheetNames.forEach(name=>{
+        const ws = wb.Sheets[name];
+        const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        state.jsonBySheet[name] = json;
+      });
+      // aplicar diccionario por hoja antes de render
+      const fixed = {};
+      Object.entries(state.jsonBySheet).forEach(([name, rows])=>{
+        fixed[name] = applyDictionary(name, rows);
+      });
+      state.jsonBySheet = fixed;
+      renderSummary();
+      renderSheets();
+    }
+
+    function guessKeyColumns(rows){
+      if(!rows.length) return { labelKey:null, numericKeys:[] };
+      const keys = Object.keys(rows[0]);
+      const numericKeys = keys.filter(k=> rows.some(r => typeof r[k]==='number' && !Number.isNaN(r[k])));
+      const labelKey = keys.find(k=> !numericKeys.includes(k));
+      return { labelKey, numericKeys };
+    }
+
+    function renderSummary(){
+      const container = qs('#summaryCards'); if(!container) return;
+      container.innerHTML = '';
+      const totalSheets = Object.keys(state.jsonBySheet).length;
+      const totalRows = Object.values(state.jsonBySheet).reduce((a,rows)=>a+rows.length,0);
+      const cards = [
+        { label: 'Hojas', value: totalSheets, icon:'file-spreadsheet' },
+        { label: 'Registros', value: totalRows, icon:'bar-chart-2' },
+        { label: 'Fuente', value: 'Excel', icon:'upload' },
+      ];
+      for(const c of cards){
+        const el = document.createElement('div');
+        el.className = 'bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6 flex items-center gap-4';
+        el.innerHTML = `<i data-lucide="${c.icon}" class="w-6 h-6 text-slate-500"></i>
+          <div><div class="text-2xl font-semibold">${c.value}</div><div class="text-sm text-slate-500">${c.label}</div></div>`;
+        container.appendChild(el);
+      }
+      import('https://cdn.jsdelivr.net/npm/lucide@0.470.0/+esm').then(({createIcons, Upload, BarChart2, FileSpreadsheet})=>{
+        createIcons({icons:{Upload, BarChart2, FileSpreadsheet}})
+      });
+    }
+
+    function createTable(rows){
+      const table = document.createElement('table');
+      table.className = 'min-w-full text-sm border';
+      if(!rows.length) return table;
+      const thead = document.createElement('thead');
+      thead.innerHTML = `<tr>${Object.keys(rows[0]).map(k=>`<th class='border px-2 py-1 bg-slate-100 text-left'>${k}</th>`).join('')}</tr>`;
+      const tbody = document.createElement('tbody');
+      const filter = (state.filter||'').toLowerCase();
+      rows.forEach(r=>{
+        const rowStr = Object.values(r).join(' ').toLowerCase();
+        if(filter && !rowStr.includes(filter)) return;
+        const tr = document.createElement('tr');
+        Object.keys(rows[0]).forEach(k=>{
+          const td = document.createElement('td');
+          td.className = 'border px-2 py-1';
+          td.textContent = r[k];
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(thead);
+      table.appendChild(tbody);
+      return table;
+    }
+
+    function destroyChart(id){ if(state.charts[id]){ state.charts[id].destroy(); delete state.charts[id]; } }
+
+    function createChart(canvas, rows, sheetName){
+      const { labelKey, numericKeys } = guessKeyColumns(rows);
+      if(!labelKey || !numericKeys.length) return null;
+      const labels = rows.slice(0,50).map(r=> String(r[labelKey]));
+      const seriesKeys = numericKeys.slice(0,3);
+      const datasets = seriesKeys.map(k=>({ label: k, data: rows.slice(0,50).map(r=> Number(r[k]) || 0) }));
+      const priority = ['Demografía','Pobreza','Salud'];
+      const type = priority.includes(sheetName) ? 'line' : 'bar';
+      const cfg = { type, data:{ labels, datasets }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:true}}, scales:{ x:{ ticks:{ autoSkip:true, maxRotation:0 } } } } };
+      return new Chart(canvas.getContext('2d'), cfg);
+    }
+
+    function renderSheets(){
+      const container = qs('#sheetsContainer'); if(!container) return;
+      container.innerHTML = '';
+      const names = Object.keys(state.jsonBySheet);
+      const priority = ['Demografía','Pobreza','Salud'];
+      const ordered = [...priority.filter(n=>names.includes(n)), ...names.filter(n=>!priority.includes(n))];
+      ordered.forEach((name, idx)=>{
+        const rows = state.jsonBySheet[name] || [];
+        const section = document.createElement('details');
+        section.className = 'bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden';
+        if(idx<3) section.open = true;
+        const summary = document.createElement('summary');
+        summary.className = 'cursor-pointer select-none px-4 py-3 font-medium flex items-center justify-between gap-4 bg-slate-50 border-b';
+        summary.innerHTML = `<span class="flex items-center gap-2">${priority.includes(name)?'<span class="chip">Clave</span>':''}${name}</span><span class="chip">${rows.length} filas</span>`;
+        const content = document.createElement('div');
+        content.className = 'p-4 space-y-4';
+
+        const actions = document.createElement('div');
+        actions.className = 'flex items-center justify-end';
+        const btnCsv = document.createElement('button');
+        btnCsv.className = 'text-xs px-3 py-1.5 rounded-lg border hover:bg-slate-50';
+        btnCsv.textContent = 'Descargar CSV';
+        btnCsv.addEventListener('click', ()=> downloadCSV(`${name}.csv`, rows));
+        actions.appendChild(btnCsv);
+        content.appendChild(actions);
+
+        const chartWrap = document.createElement('div');
+        chartWrap.className = 'h-64';
+        const canvas = document.createElement('canvas');
+        chartWrap.appendChild(canvas);
+        const chart = createChart(canvas, rows, name);
+        if(chart){ content.appendChild(chartWrap); }
+
+        const tableWrap = document.createElement('div');
+        tableWrap.className = 'overflow-auto border rounded-xl';
+        tableWrap.appendChild(createTable(rows));
+        content.appendChild(tableWrap);
+
+        section.appendChild(summary);
+        section.appendChild(content);
+        container.appendChild(section);
+      });
+    }
+
+    function toCSV(rows){
+      if(!rows || !rows.length) return '';
+      const cols = Object.keys(rows[0]);
+      const esc = v=>`"${String(v).replaceAll('"','""')}"`;
+      const head = cols.map(esc).join(',');
+      const body = rows.map(r=> cols.map(c=> esc(r[c])).join(',')).join('\n');
+      return head+'\n'+body;
+    }
+    function downloadCSV(filename, rows){
+      const csv = toCSV(rows);
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Diccionario de columnas por hoja
+    const COLUMN_DICTIONARY = {
+      'Demografía': {
+        rename: { 'Poblacion_total':'Población total', 'Urbano':'Población urbana', 'Rural':'Población rural' },
+        units: { 'Población total':'hab', 'Población urbana':'hab', 'Población rural':'hab' },
+        decimals: { 'Población total':0, 'Población urbana':0, 'Población rural':0 }
+      },
+      'Pobreza': {
+        rename: { 'NBI_total':'NBI total', 'Miseria':'Pobreza extrema' },
+        units: { 'NBI total':'%', 'Pobreza extrema':'%' },
+        decimals: { 'NBI total':2, 'Pobreza extrema':2 }
+      },
+      'Salud': {
+        rename: { 'Cobertura_COVID_1d':'Cobertura 1ª dosis', 'Cobertura_COVID_full':'Cobertura esquema completo' },
+        units: { 'Cobertura 1ª dosis':'%', 'Cobertura esquema completo':'%' },
+        decimals: { 'Cobertura 1ª dosis':2, 'Cobertura esquema completo':2 }
+      }
+    };
+    function applyDictionary(sheetName, rows){
+      const rules = COLUMN_DICTIONARY[sheetName];
+      if(!rules || !rows.length) return rows;
+      const out = rows.map(r=>({ ...r }));
+      if(rules.rename){
+        for(const oldKey of Object.keys(rules.rename)){
+          const newKey = rules.rename[oldKey];
+          out.forEach(row=>{ if(oldKey in row){ row[newKey] = row[oldKey]; delete row[oldKey]; } });
+        }
+      }
+      const dec = rules.decimals || {}; const units = rules.units || {};
+      const keys = Object.keys(out[0]||{});
+      out.forEach(row=>{
+        for(const k of keys){
+          if(typeof row[k] === 'number'){
+            const d = (k in dec) ? dec[k] : null;
+            const u = (k in units) ? units[k] : '';
+            const n = (d!==null) ? Number(row[k]).toFixed(d) : row[k];
+            row[k] = u ? `${n} ${u}` : n;
+          }
+        }
+      });
+      return out;
+    }
+
+    // Eventos UI
+    qs('#fileInput').addEventListener('change', async (e)=>{
+      const f = e.target.files?.[0];
+      if(!f) return;
+      setStatus(\`Leyendo "\${f.name}"…\`);
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      onWorkbookLoaded(wb, 'Cargado desde archivo local');
+    });
+    qs('#reloadBtn').addEventListener('click', fetchExcel);
+    qs('#globalSearch').addEventListener('input', (e)=>{ state.filter = e.target.value || ''; renderSheets(); });
+    document.getElementById('downloadAllBtn')?.addEventListener('click', async ()=>{
+      if(!state.jsonBySheet || !Object.keys(state.jsonBySheet).length){
+        alert('No hay datos cargados. Carga el Excel primero.'); return;
+      }
+      const zip = new JSZip();
+      for(const [name, rows] of Object.entries(state.jsonBySheet)){
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const csv = XLSX.utils.sheet_to_csv(ws);
+        zip.file(`${name}.csv`, csv);
+      }
+      const blob = await zip.generateAsync({ type:'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'Quipama_Banco_Estadisticas_CSV.zip';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    // Carga inicial
+    fetchExcel();
+  </script>
+</body>
+</html>
